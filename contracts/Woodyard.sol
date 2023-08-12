@@ -3,6 +3,7 @@ pragma solidity ^0.8.9;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "./interfaces/IERC6551Registry.sol";
+import "./utils/Exec.sol";
 
 contract Woodyard {
     IERC721 public immutable axeToken; // The AXE NFT contract
@@ -29,27 +30,33 @@ contract Woodyard {
         implementation = _implementation;
     }
 
-    // Register an 6551 account to Woodyard
-    function register(address tokenContract, uint256 tokenId) external {
+    // check if msg.sender is a NFT Bound Account
+    modifier isAccountOwner(address tokenContract, uint256 tokenId) {
+        require(_isContact(msg.sender));
         address accountAddress = account(tokenContract, tokenId);
-        require(lastClaimedAt[accountAddress] == 0, "Already registered");
-        lastClaimedAt[accountAddress] = block.timestamp;
+        require(accountAddress == msg.sender);
 
-        emit Registered(accountAddress);
     }
 
-    function stake() returns () {}
+    function stake(address AxeContract, uint256 tokenId) public isAccountOwner(tokenContract, tokenId) returns () {
+        require(lastClaimedAt[msg.sender] == 0, "Already staked");
+        bytes memor data = abi.encodeWithSignature("transferFrom(address,address,uint256)", msg.sender, address(this), tokenId);
+        bool success = Exec.call(AxeContract, 0, data, gasleft());
+        require(sucess, "stake failed")
+        lastClaimedAt[msg.sender] = block.timestamp;
+
+        emit Staked(msg.sender, AxeContract, tokenId);
+    }
 
     // Claim WOOD tokens to an 6551 account
     function claim(address tokenContract, uint256 tokenId) external {
-        address accountAddress = account(tokenContract, tokenId);
 
-        require(lastClaimedAt[accountAddress] != 0, "Not registered");
+        require(lastClaimedAt[msg.sender] != 0, "Not staked");
 
-        uint accumulatedWood = earned(accountAddress);
+        uint accumulatedWood = earned(msg.sender);
         require(accumulatedWood > 0, "Nothing to claim");
-        lastClaimedAt[accountAddress] = block.timestamp;
-        woodToken.transfer(accountAddress, accumulatedWood);
+        lastClaimedAt[msg.sender] = block.timestamp;
+        woodToken.transfer(msg.sender, accumulatedWood);
 
         emit Claimed(accountAddress, accumulatedWood);
     }
@@ -83,6 +90,15 @@ contract Woodyard {
             );
     }
 
+    function _isContact(address account) internal pure view return(bool) {
+        uint size;
+        assembly {
+            size := extcodesize(account)
+        }
+        return size > 0;
+    }
+
     event Registered(address indexed account);
+    event Staked(address account, address tokenContract, uint256 tokenId);
     event Claimed(address indexed account, uint256 amount);
 }
